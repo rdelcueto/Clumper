@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <set>
 #include <limits>
+#include <sys/time.h>
 
 #include <cutil.h>
 #include <math_constants.h>
@@ -53,7 +54,7 @@ void print_usage ();
  * 
  * @return 
  */
-int parse_input_matrix ( std::ifstream &file,
+int parse_pdist_matrix ( std::ifstream &file,
 			 const int matrix_size,
 			 float matrix[] );
 
@@ -91,38 +92,25 @@ void associate_closest_medoid ( const unsigned int clusters,
 				const float distance_matrix[] );
 
 /** 
- * Fills up the medoid_candidates_cost vector, with the cost of every element's
- * selection as medoid within it's associated cluster and data-points.
- * 
+ * Updates the medoid indexes n' costs with the best candidate if it exists.
+ *
  * @param clusters Number of clusters.
  * @param elements Number of elements.
  * @param medoid_assoc Array describing the medoid association for every element.
- * @param medoid_candidates_cost Array describing each candidate's cost.
  * @param distance_matrix The input distance matrix.
- */
-void get_medoid_candidates_cost ( const unsigned int clusters,
-				     const unsigned int elements,
-				     const unsigned int medoid_assoc[],
-				     float medoid_candidates_cost[],
-				     const float distance_matrix[] );
-
-/** 
- * Gets the best possible medoid for every cluster, writing into medoid_indexes 
- * given selection, and the cost of each selected medoid into medoids_cost.
- * 
- * @param clusters Number of clusters.
- * @param elements Number of elements.
- * @param medoid_indexes Array with indexes describing the selected medoid set.
- * @param medoid_assoc Array describing the medoid association for every element.
- * @param medoids_cost Array describing the final medoid cost.
  * @param medoid_candidates_cost Array describing each candidate's cost.
+ * @param medoid_indexes Array describing the current medoid set.
+ * @param medoid_costs Array describing the current medoids' costs.
+ * @param diff_flag Difference flag to indicate if there was a change in the medoid set.
  */
-void get_best_medoid_candidate ( const unsigned int clusters,
-				 const unsigned int elements,
-				 unsigned int medoid_indexes[],
-				 const unsigned int medoid_assoc[],
-				 float medoids_cost[],
-				 const float medoid_candidates_cost[] );
+void reduce_medoid_candidates ( const unsigned int clusters,
+				const unsigned int elements,
+				const unsigned int medoid_assoc[],
+				const float distance_matrix[],
+				float medoid_candidates_cost[],
+				unsigned int medoid_indexes[],
+				float medoid_costs[],
+				int *diff_flag );
 
 /** 
  * Runs the K-Medoid Clustering Algorithm Function over the input data, and
@@ -131,9 +119,10 @@ void get_best_medoid_candidate ( const unsigned int clusters,
  * @param clusters Number of clusters
  * @param distance_matrix Input Distance Squared Matrix
  * @param elements Number of Elements / Distance Matrix Size.
+ * @param max_iter Maximum Number of Iterations. A zero value, disables limit.
  */
 void k_medoid_clustering ( const unsigned int clusters,
 			   const float distance_matrix[],
-			   const unsigned int elements );
-
+			   const unsigned int elements,
+			   const unsigned int max_iter );
 #endif // __CLUMPER_H__

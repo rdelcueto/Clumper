@@ -26,7 +26,7 @@ void print_usage ()
   return;
 }
 
-int parse_input_matrix ( std::ifstream &file,
+int parse_pdist_matrix ( std::ifstream &file,
 			 const unsigned int matrix_size,
 			 float matrix[] )
 {
@@ -90,12 +90,12 @@ int main ( const int argc, const char **argv )
 	{
 	  input_matrix = ( float* ) calloc ( input_matrix_width * input_matrix_width,
 					     sizeof ( float ) );
-	  parse_input_matrix( input_matrix_file, input_matrix_width, input_matrix );
+	  parse_pdist_matrix( input_matrix_file, input_matrix_width, input_matrix );
 	  input_matrix_file.close();
 	  //print_input_matrix( input_matrix_width, input_matrix );
 
-	  k_medoid_clustering( k, input_matrix, input_matrix_width );
-
+	  k_medoid_clustering( k, input_matrix, input_matrix_width, 10 );
+          
 	  free ( input_matrix );
 	}
     }
