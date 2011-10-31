@@ -94,7 +94,7 @@ int main ( const int argc, const char **argv )
 	  input_matrix_file.close();
 	  //print_input_matrix( input_matrix_width, input_matrix );
 
-	  k_medoid_clustering( k, input_matrix, input_matrix_width, 10 );
+	  k_medoid_clustering( k, input_matrix, input_matrix_width, 5 );
           
 	  free ( input_matrix );
 	}

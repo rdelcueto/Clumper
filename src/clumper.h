@@ -92,21 +92,44 @@ void associate_closest_medoid ( const unsigned int clusters,
 				const float distance_matrix[] );
 
 /** 
+ * Clears previous iteration candidates' cost values and blacklisted elements.
+ *
+ * @param elements Number of elements.
+ * @param medoid_candidates_cost Array for clearing values.
+ */
+void clear_medoid_candidates ( const unsigned int elements,
+			       float medoid_candidates_cost[] );
+
+/** 
+ * Computes the cost for all elements as candidates for substitution of medoid for the given cluster.
+ *
+ * @param cluster Index of cluster to compute candidates.
+ * @param elements Number of elements.
+ * @param medoid_assoc Array describing the medoid association table of all elements.
+ * @param distance_matrix The input distance matrix.
+ * @param medoid_candidates_cost Array for writing each candidate's cost.
+ */
+void compute_medoid_candidates ( const unsigned int cluster,
+				 const unsigned int elements,
+				 const unsigned int medoid_assoc[],
+				 const unsigned int medoid_indexes[],
+				 const float distance_matrix[],
+				 float medoid_candidates_cost[] );
+
+/** 
  * Updates the medoid indexes n' costs with the best candidate if it exists.
  *
- * @param clusters Number of clusters.
+ * @param cluster Index of cluster to reduce.
  * @param elements Number of elements.
- * @param medoid_assoc Array describing the medoid association for every element.
- * @param distance_matrix The input distance matrix.
+ * @param medoid_assoc Array describing the medoid association table of all elements.
  * @param medoid_candidates_cost Array describing each candidate's cost.
  * @param medoid_indexes Array describing the current medoid set.
  * @param medoid_costs Array describing the current medoids' costs.
  * @param diff_flag Difference flag to indicate if there was a change in the medoid set.
  */
-void reduce_medoid_candidates ( const unsigned int clusters,
+void reduce_medoid_candidates ( const unsigned int cluster,
 				const unsigned int elements,
-				const unsigned int medoid_assoc[],
-				const float distance_matrix[],
+				unsigned int medoid_assoc[],
 				float medoid_candidates_cost[],
 				unsigned int medoid_indexes[],
 				float medoid_costs[],

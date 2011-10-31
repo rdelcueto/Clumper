@@ -52,12 +52,53 @@ __global__ void associate_closest_medoid ( const unsigned int clusters,
       medoid_assoc [ id ] = best_medoid_index;
       id += blockDim.x;
     }
+
+  return;
 }
 
-__global__ void reduce_medoid_candidates ( const unsigned int clusters,
+__global__ void clear_medoid_candidates ( const unsigned int elements,
+					  float medoid_candidates_cost[] )
+{
+  unsigned int id = threadIdx.x;
+  while ( id < elements )
+    {
+      medoid_candidates_cost [ id ] = 0.0f;
+      id += blockDim.x;
+    }
+  return;
+}
+
+__global__ void compute_medoid_candidates ( const unsigned int cluster,
+					    const unsigned int elements,
+					    const unsigned int medoid_assoc[],
+					    const unsigned int medoid_indexes[],
+					    const float distance_matrix[],
+					    float medoid_candidates_cost[] )
+{
+  unsigned int curr_medoid_idx = medoid_indexes [ cluster ];
+  unsigned int id = threadIdx.x;
+  while ( id < elements )
+    {
+      if ( medoid_candidates_cost [ id ] != CUDART_INF_F )
+	{
+	  unsigned int elements_it = 0;
+	  float cost = 0.0f;
+	  while ( elements_it < elements )
+	    {
+	      if ( medoid_assoc [ elements_it ] == curr_medoid_idx )
+		cost += distance_matrix [ elements * elements_it + id ];
+	      elements_it++;
+	    }
+	  medoid_candidates_cost [ id ] = cost;
+	}
+      id += blockDim.x;
+    }
+  return;
+}
+
+__global__ void reduce_medoid_candidates ( const unsigned int cluster,
 					   const unsigned int elements,
-					   const unsigned int medoid_assoc[],
-					   const float distance_matrix[],
+					   unsigned int medoid_assoc[],
 					   float medoid_candidates_cost[],
 					   unsigned int medoid_indexes[],
 					   float medoid_costs[],
@@ -66,107 +107,71 @@ __global__ void reduce_medoid_candidates ( const unsigned int clusters,
   float * medoid_cost_local_reduction = ( float * ) shared_memory;
 
   unsigned int * medoid_index_local_reduction =
-    ( unsigned int * ) &medoid_cost_local_reduction [ elements ];
+    ( unsigned int * ) &medoid_cost_local_reduction [ blockDim.x ];
 
-  unsigned int id = threadIdx.x;
+  // Over-block Reduction ( Device Max-threads < elements )
+  float a, b;
+  unsigned int best_idx;
+
+  a = medoid_candidates_cost [ threadIdx.x ];
+  best_idx = threadIdx.x;
+
+  unsigned int id = threadIdx.x + gridDim.x;
   while ( id < elements )
     {
-      medoid_candidates_cost [ id ] = 0;
-      id += gridDim.x;
-    }
-  __syncthreads();
+      b = medoid_candidates_cost [ id ];
 
-  // Get each candidate cost per cluster
-  for ( unsigned int curr_cluster = 0; curr_cluster < clusters; curr_cluster++ )
-    {
-      unsigned int curr_cluster_index = medoid_indexes [ curr_cluster ];
-
-      id = threadIdx.x;
-      while ( id < elements )
+      if ( b < a )
 	{
-	  if ( medoid_candidates_cost [ id ] != CUDART_INF_F )
-	    {
-	      float candidate_cost = 0;
-	      for ( unsigned int i = 0; i < elements; i++ )
-		{
-		  if ( medoid_assoc [ i ] == curr_cluster_index )
-		    {
-		      // Version A
-		      candidate_cost += distance_matrix [ elements * i + id ];
-		      // Version B
-		      //float d = distance_matrix [ elements * i + id ];
-		      //candidate_medoid_cost += d * d;
-		    }
-		}
-	      medoid_candidates_cost [ id ] = candidate_cost;
-	    }
-	  id += blockDim.x;
+	  a = b;
+	  best_idx = id;
 	}
+      id += blockDim.x;
+    }
 
-      // Over-block Reduction ( Device Max-threads < elements )
-      float a, b;
-      unsigned int best_idx;
+  medoid_cost_local_reduction [ threadIdx.x ] = a;
+  medoid_index_local_reduction [ threadIdx.x ] = best_idx;
 
-      a = medoid_candidates_cost [ threadIdx.x ];
-      best_idx = threadIdx.x;
+  __syncthreads();
+      
+  // Block Reduction
+  int reduce_idx = 1;
+  const int reduce_limit = blockDim.x;
 
-      unsigned int id = threadIdx.x + gridDim.x;
-      while ( id < elements )
+  while ( reduce_idx < reduce_limit ) reduce_idx <<= 1;
+  while ( reduce_idx != 0 )
+    {
+      if ( threadIdx.x < reduce_idx &&
+	   threadIdx.x + reduce_idx < reduce_limit )
 	{
-	  b = medoid_candidates_cost [ id ];
+	  a = medoid_cost_local_reduction [ threadIdx.x ];
+	  b = medoid_cost_local_reduction [ threadIdx.x + reduce_idx ];
 
 	  if ( b < a )
 	    {
-	      a = b;
-	      best_idx = id;
+	      medoid_cost_local_reduction [ threadIdx.x ] = b;
+	      medoid_index_local_reduction [ threadIdx.x ] =
+		medoid_index_local_reduction [ threadIdx.x + reduce_idx ];
 	    }
-	  id += gridDim.x;
 	}
+      __syncthreads ();
+      reduce_idx >>= 1;
+    }
 
-      medoid_cost_local_reduction [ threadIdx.x ] = a;
-      medoid_index_local_reduction [ threadIdx.x ] = best_idx;
+  if ( threadIdx.x == 0 )
+    {
+      unsigned int old_medoid_idx = medoid_indexes [ cluster ];
+      unsigned int best_candidate_idx = medoid_index_local_reduction [ 0 ];
 
-      __syncthreads();
-      
-      // Block Reduction
-      {
-	int reduce_idx = 1;
-	const int reduce_limit = blockDim.x;
-
-	while ( reduce_idx < reduce_limit ) reduce_idx <<= 1;
-	float a, b;
-	while ( reduce_idx != 0 )
-	  {
-	    if ( threadIdx.x < reduce_idx &&
-		 threadIdx.x + reduce_idx < reduce_limit )
-	      {
-		a = medoid_cost_local_reduction [ threadIdx.x ];
-		b = medoid_cost_local_reduction [ threadIdx.x + reduce_idx ];
-
-		if ( b < a )
-		  {
-		    medoid_cost_local_reduction [ threadIdx.x ] = b;
-		    medoid_index_local_reduction [ threadIdx.x ] =
-		      medoid_index_local_reduction [ threadIdx.x + reduce_idx ];
-		  }
-	      }
-	    __syncthreads ();
-	    reduce_idx >>= 1;
-	  }
-
-	if ( threadIdx.x == 0 )
-	  {
-	    unsigned int old_medoid_idx = medoid_indexes [ curr_cluster ];
-	    unsigned int best_candidate_idx = medoid_index_local_reduction [ 0 ];
-
-	    if ( old_medoid_idx != best_candidate_idx )
-	      *diff_flag |= 1;
-
-	    medoid_indexes [ curr_cluster ] = best_candidate_idx;
-	    medoid_candidates_cost [ best_candidate_idx ] = CUDART_INF_F;
-	    medoid_costs [ curr_cluster ] = medoid_cost_local_reduction [ 0 ];
-	  }
-      }      
+      if ( old_medoid_idx != best_candidate_idx )
+	{
+	  medoid_assoc [ best_candidate_idx ] = medoid_indexes [ cluster ];
+	  medoid_indexes [ cluster ] = best_candidate_idx;
+	  medoid_candidates_cost [ best_candidate_idx ] = CUDART_INF_F; // Blacklist element.
+	  medoid_costs [ cluster ] = medoid_cost_local_reduction [ 0 ];
+	  
+	  *diff_flag |= 1;
+	}
     }
   return;
 }
@@ -199,18 +204,18 @@ void k_medoid_clustering ( const unsigned int clusters,
   std::cout << "Using " << threads << " threads.\n";
 
   // Device Memory Pointers
-  float *dev_distance_matrix_ptr;          // Distance Matrix
+  float *dev_distance_matrix_ptr;            // Distance Matrix
 
-  float *dev_medoids_costs_ptr;             // Selected Medoids' Cost
-  unsigned int *dev_medoids_indexes_ptr;    // Selected Medoids' Indexes
+  float *dev_medoids_costs_ptr;              // Selected Medoids' Cost
+  unsigned int *dev_new_medoids_indexes_ptr; // Selected Medoids' Indexes
+  unsigned int *dev_best_medoids_indexes_ptr;     // Selected Medoids' Indexes
 
-  float *dev_medoid_candidates_cost_ptr;   // Every Possible Medoid Cost
+  float *dev_medoid_candidates_cost_ptr;     // Every Possible Medoid Cost
 
-  unsigned int *dev_medoid_assoc_ptr;      // New Medoid Association Table
+  unsigned int *dev_medoid_assoc_ptr;        // New Medoid Association Table
 
-  int *dev_diff_flag_ptr;                  // Difference Flag
+  int *dev_diff_flag_ptr;                    // Difference Flag
 
-  unsigned int *host_best_cluster_medoid_assoc_ptr;
   float host_best_cluster_cost = std::numeric_limits<float>::infinity();
 
   // Device Memory Allocation
@@ -220,7 +225,10 @@ void k_medoid_clustering ( const unsigned int clusters,
   CUDA_SAFE_CALL( cudaMalloc( ( void ** ) &dev_medoids_costs_ptr,
 			      sizeof ( float ) * clusters ) );
 
-  CUDA_SAFE_CALL( cudaMalloc( ( void ** ) &dev_medoids_indexes_ptr,
+  CUDA_SAFE_CALL( cudaMalloc( ( void ** ) &dev_new_medoids_indexes_ptr,
+			      sizeof ( unsigned int ) * clusters ) );
+
+  CUDA_SAFE_CALL( cudaMalloc( ( void ** ) &dev_best_medoids_indexes_ptr,
 			      sizeof ( unsigned int ) * clusters ) );
 
   CUDA_SAFE_CALL( cudaMalloc( ( void ** ) &dev_medoid_candidates_cost_ptr,
@@ -263,7 +271,7 @@ void k_medoid_clustering ( const unsigned int clusters,
     init_medoid_indexes.clear();
 
     // Copy Medoid Indexes into Device
-    CUDA_SAFE_CALL( cudaMemcpy ( dev_medoids_indexes_ptr,
+    CUDA_SAFE_CALL( cudaMemcpy ( dev_new_medoids_indexes_ptr,
 				 &host_medoid_indexes,
 				 sizeof ( unsigned int ) * clusters,
 				 cudaMemcpyHostToDevice ) );
@@ -274,7 +282,7 @@ void k_medoid_clustering ( const unsigned int clusters,
   {
     unsigned int host_medoid_indexes [ clusters ];
     CUDA_SAFE_CALL( cudaMemcpy( &host_medoid_indexes,
-				dev_medoids_indexes_ptr,
+				dev_new_medoids_indexes_ptr,
 				sizeof ( unsigned int ) * clusters,
 				cudaMemcpyDeviceToHost ) );
 
@@ -294,22 +302,25 @@ void k_medoid_clustering ( const unsigned int clusters,
 
   do
     {
-      host_diff_flag = 0;
-      CUDA_SAFE_CALL( cudaMemcpy( dev_diff_flag_ptr,
-				  &host_diff_flag,
- 				  sizeof ( int ),
-				  cudaMemcpyHostToDevice ) );
+      // Reset Diff Flag
+      CUDA_SAFE_CALL( cudaMemset( dev_diff_flag_ptr,
+				  0,
+				  sizeof ( int ) ) );
 
+#ifdef _DEBUG
+      {
       if ( max_iter == 0 )
 	std::cout << "Iteration: " << ( iterations + 1 ) << std::endl;
       else
 	std::cout << "Iteration: " << ( iterations + 1 ) << " / " << max_iter << std::endl;
+      }
+#endif
 
       // Associate each datapoint with closest medoid
       associate_closest_medoid
 	<<< 1, threads >>> ( clusters,
 			     elements,
-			     dev_medoids_indexes_ptr,
+			     dev_new_medoids_indexes_ptr,
 			     dev_medoid_assoc_ptr,
 			     dev_distance_matrix_ptr );
 
@@ -319,7 +330,7 @@ void k_medoid_clustering ( const unsigned int clusters,
 	// Copy Medoid Set into Host
 	unsigned int host_medoid_indexes [ clusters ];
 	CUDA_SAFE_CALL( cudaMemcpy( &host_medoid_indexes,
-				    dev_medoids_indexes_ptr,
+				    dev_new_medoids_indexes_ptr,
 				    sizeof ( unsigned int ) * clusters,
 				    cudaMemcpyDeviceToHost ) );
 
@@ -347,17 +358,51 @@ void k_medoid_clustering ( const unsigned int clusters,
       }
 #endif
 
-      // Update Medoids
-      reduce_medoid_candidates
-	<<< 1, threads,	( sizeof ( float ) + sizeof ( unsigned int ) ) * elements >>>
-	( clusters,
-	  elements,
-	  dev_medoid_assoc_ptr,
-	  dev_distance_matrix_ptr,
-	  dev_medoid_candidates_cost_ptr,
-	  dev_medoids_indexes_ptr,
-	  dev_medoids_costs_ptr,
-	  dev_diff_flag_ptr );
+      // Clear New Iteration Memory
+      clear_medoid_candidates
+	<<< 1, threads >>>
+	( elements,
+	  dev_medoid_candidates_cost_ptr );
+
+      // Compute new candidates
+      for ( unsigned int cluster_it = 0; cluster_it < clusters; cluster_it++ )
+	{
+	  compute_medoid_candidates
+	    <<< 1, threads >>>
+	    ( cluster_it,
+	      elements,
+	      dev_medoid_assoc_ptr,
+	      dev_new_medoids_indexes_ptr,
+	      dev_distance_matrix_ptr,
+	      dev_medoid_candidates_cost_ptr );
+
+#ifdef _DEBUG
+      {
+	float host_candidates_costs [ elements ];
+	CUDA_SAFE_CALL( cudaMemcpy( &host_candidates_costs,
+				    dev_medoid_candidates_cost_ptr,
+				    sizeof ( float ) * elements,
+				    cudaMemcpyDeviceToHost ) );
+
+	std::cout << "Cluster " << cluster_it << " candidates' costs:\n";
+	for ( unsigned int i = 0; i < elements; i++ )
+	  {
+	    std::cout << i << ": " << host_candidates_costs [ i ] << std::endl;
+	  }
+	std::cout << std::endl;
+      }
+#endif
+
+	  reduce_medoid_candidates
+	    <<< 1, threads, ( sizeof ( float ) + sizeof ( unsigned int ) ) * threads >>>
+	    ( cluster_it,
+	      elements,
+	      dev_medoid_assoc_ptr,
+	      dev_medoid_candidates_cost_ptr,
+	      dev_new_medoids_indexes_ptr,
+	      dev_medoids_costs_ptr,
+	      dev_diff_flag_ptr );
+	}
 
       // Check Device Medoid Partial cluster Cost. DEBUG
 #ifdef _DEBUG
@@ -365,7 +410,7 @@ void k_medoid_clustering ( const unsigned int clusters,
 	// Copy Medoid Set into Host
 	unsigned int host_medoid_indexes [ clusters ];
 	CUDA_SAFE_CALL( cudaMemcpy( &host_medoid_indexes,
-				    dev_medoids_indexes_ptr,
+				    dev_new_medoids_indexes_ptr,
 				    sizeof ( unsigned int ) * clusters,
 				    cudaMemcpyDeviceToHost ) );
 
@@ -375,11 +420,12 @@ void k_medoid_clustering ( const unsigned int clusters,
 				    sizeof ( float ) * clusters,
 				    cudaMemcpyDeviceToHost ) );
 
-	std::cout << "\nUpdated Medoid: Element Idx | Medoid Cost\n";
+	std::cout << "\nUpdated Medoids\n";
+	std::cout << "Medoid | Idx | Cost\n";
 	for ( unsigned int i = 0; i < clusters; i++ )
 	  {
 	    std::cout <<
-	      i << " | " <<
+	      i << ": " <<
 	      host_medoid_indexes [ i ] << " | " <<
 	      host_medoids_costs [ i ] << std::endl;
 	  }
@@ -387,73 +433,40 @@ void k_medoid_clustering ( const unsigned int clusters,
       }
 #endif
 
-      // Check Current Clustering Cost.
+      // Compute Current Iteration Cluster Score
+      float host_medoids_costs [ elements ];
+      CUDA_SAFE_CALL( cudaMemcpy( &host_medoids_costs,
+				  dev_medoids_costs_ptr,
+				  sizeof ( float ) * clusters,
+				  cudaMemcpyDeviceToHost ) );
+	
+      float cluster_score = 0.0f;
+
+      for ( unsigned int i = 0; i < clusters; i++ )
+	{
+	  cluster_score += host_medoids_costs [ i ];
+	}
+
+      if ( cluster_score < host_best_cluster_cost )
+	{
+	  host_best_cluster_cost = cluster_score;
+	  CUDA_SAFE_CALL( cudaMemcpy( dev_best_medoids_indexes_ptr,
+				      dev_new_medoids_indexes_ptr,
+				      sizeof ( unsigned int ) * clusters,
+				      cudaMemcpyDeviceToDevice ) );
+	}
+
 #ifdef _DEBUG
       {
-	// Copy New Medoid Set into Host
-	unsigned int host_medoid_indexes [ clusters ];
-	CUDA_SAFE_CALL( cudaMemcpy( &host_medoid_indexes,
-				    dev_medoids_indexes_ptr,
-				    sizeof ( unsigned int ) * clusters,
-				    cudaMemcpyDeviceToHost ) );
-
-	float host_medoids_costs [ elements ];
-	CUDA_SAFE_CALL( cudaMemcpy( &host_medoids_costs,
-				    dev_medoids_costs_ptr,
-				    sizeof ( float ) * clusters,
-				    cudaMemcpyDeviceToHost ) );
-	
-	float cluster_score = 0.0f;
-
-	for ( unsigned int i = 0; i < clusters; i++ )
-	  {
-	    cluster_score += host_medoids_costs [ i ];
-	  }
-
 	std::cout << "Clustering Score\n";
 	std::cout << cluster_score << "\n";
 	std::cout << std::endl;
       }
 #endif
-
-#ifdef _DEBUG
-	{
-	// Copy Medoid Set into Host
-	unsigned int host_medoid_indexes [ clusters ];
-	CUDA_SAFE_CALL( cudaMemcpy( &host_medoid_indexes,
-				    dev_medoids_indexes_ptr,
-				    sizeof ( unsigned int ) * clusters,
-				    cudaMemcpyDeviceToHost ) );
-
-	// Copy Medoid Assoc Table
-	unsigned int host_medoid_assoc [ elements ];
-	CUDA_SAFE_CALL( cudaMemcpy( &host_medoid_assoc,
-				    dev_medoid_assoc_ptr,
-				    sizeof ( unsigned int ) * elements,
-				    cudaMemcpyDeviceToHost ) );
-
-	//Check Medoid Sets. DEBUG 
-	std::cout << "Index | New Assoc Tables\n";
-	for ( unsigned int i = 0; i < clusters; i++ )
-	  {
-	    unsigned int assoc_it = host_medoid_indexes [ i ];
-	    for ( unsigned int j = 0; j < elements; j++ )
-	      {
-		if ( host_medoid_assoc [ j ] == assoc_it )
-		  {
-		    std::cout <<
-		      assoc_it << " | " << j << std::endl;
-		  }
-	      }
-	  }
-	  std::cout << std::endl;
-	}
-#endif
-
-	CUDA_SAFE_CALL( cudaMemcpy( &host_diff_flag,
-				    dev_diff_flag_ptr,
-				    sizeof ( int ),
-				    cudaMemcpyDeviceToHost ) );
+      CUDA_SAFE_CALL( cudaMemcpy( &host_diff_flag,
+				  dev_diff_flag_ptr,
+				  sizeof ( int ),
+				  cudaMemcpyDeviceToHost ) );
 
 #ifdef _DEBUG
 	{
@@ -469,62 +482,59 @@ void k_medoid_clustering ( const unsigned int clusters,
     } while ( host_diff_flag && ( ++iterations < iterations_limit ) );
   // End Clustering Loop
 
-  // Print Results
   // TODO: Standarize Output format
   if ( iterations < iterations_limit )
     std::cout << "Converged after " << ( iterations + 1 ) << " iterations." << std::endl;
   else
     std::cout << "Reached iteration limit @ " << ( iterations ) << " / " << iterations_limit << "." << std::endl;
 
-  // Copy Results from Device
-  unsigned int host_medoid_indexes [ clusters ];
-  CUDA_SAFE_CALL( cudaMemcpy( &host_medoid_indexes,
-	dev_medoids_indexes_ptr,
-	sizeof ( unsigned int ) * clusters,
-	cudaMemcpyDeviceToHost ) );
+  // Restore assoc. table of best medoid set.
+  associate_closest_medoid
+    <<< 1, threads >>> ( clusters,
+			 elements,
+			 dev_best_medoids_indexes_ptr,
+			 dev_medoid_assoc_ptr,
+			 dev_distance_matrix_ptr );
 
-  float host_medoids_costs [ elements ];
-  CUDA_SAFE_CALL( cudaMemcpy( &host_medoids_costs,
-	dev_medoids_costs_ptr,
-	sizeof ( float ) * clusters,
-	cudaMemcpyDeviceToHost ) );
-
+  // Copy restored assoc. table.
   unsigned int host_medoid_assoc [ elements ];
   CUDA_SAFE_CALL( cudaMemcpy( &host_medoid_assoc,
 			      dev_medoid_assoc_ptr,
 			      sizeof ( unsigned int ) * elements,
 			      cudaMemcpyDeviceToHost ) );
+
+  // Copy best medoid set indexes.
+  unsigned int host_medoid_indexes [ clusters ];
+  CUDA_SAFE_CALL( cudaMemcpy( &host_medoid_indexes,
+			      dev_best_medoids_indexes_ptr,
+			      sizeof ( unsigned int ) * clusters,
+			      cudaMemcpyDeviceToHost ) );
+
 	
-  float cluster_score = 0.0f;
+  // Print Results
+  std::cout << "Final Clustering Score: " << host_best_cluster_cost << "\n";
 
-  for ( unsigned int i = 0; i < clusters; i++ )
+  unsigned int cluster_it = 0;
+  while ( cluster_it < clusters )
     {
-      cluster_score += host_medoids_costs [ i ];
-    }
-
-  std::cout << "Clustering Score\n";
-  std::cout << cluster_score << "\n";
-  std::cout << std::endl;
-
-  std::cout << "Resulting Medoid Set\n";
-
-  unsigned int n = 0;
-  for ( unsigned int i = 0; i < clusters; i++ )
-    {
-      std::cout << "#Cluster\t" << ++n << std::endl;
-      unsigned int medoid_index = host_medoid_indexes[ i ];
-      for ( unsigned int j = 0; j < elements; j++ )
-  	{
-  	  if ( medoid_index == host_medoid_assoc [ j ] )
-  	    std::cout << ( j + 1 ) << "\n";
-  	}
+      std::cout << "#Cluster " << cluster_it << std::endl;
+      unsigned int element_it = 0;
+      unsigned int medoid_it = host_medoid_indexes [ cluster_it ];
+      while ( element_it < elements )
+	{
+	  if ( medoid_it == host_medoid_assoc [ element_it ] )
+	    std::cout << ( element_it + 1 ) << std::endl;
+	  element_it++;
+	}
+      cluster_it++;
     }
 
   // Device Memory Deallocation
   CUDA_SAFE_CALL( cudaFree ( dev_distance_matrix_ptr ) );
   CUDA_SAFE_CALL( cudaFree ( dev_medoid_candidates_cost_ptr ) );
   CUDA_SAFE_CALL( cudaFree ( dev_medoids_costs_ptr ) );
-  CUDA_SAFE_CALL( cudaFree ( dev_medoids_indexes_ptr ) );
+  CUDA_SAFE_CALL( cudaFree ( dev_new_medoids_indexes_ptr ) );
+  CUDA_SAFE_CALL( cudaFree ( dev_best_medoids_indexes_ptr ) );
   CUDA_SAFE_CALL( cudaFree ( dev_medoid_assoc_ptr ) );
   CUDA_SAFE_CALL( cudaFree ( dev_diff_flag_ptr ) );
 
