@@ -1,6 +1,6 @@
 # Clumper Makefile
 package = Clumper
-version = 0.0.1alpha
+version = 1.0rc
 tarname = $(package)-dist
 dist-dir = $(tarname)-$(version)
 

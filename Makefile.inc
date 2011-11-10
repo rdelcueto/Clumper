@@ -2,21 +2,23 @@ CC := g++
 NVCC := nvcc
 
 LIB_INCLUDES += -I/usr/include -I/usr/local/cuda/include
-LD_FLAGS += -lrt -lgomp -lcudart -L/usr/local/cuda/lib64/
+LD_FLAGS += -lrt -lgomp -largtable2 -lcudart -L/usr/local/cuda/lib64/
 
-ifeq ($(DEBUG), 1)
+ifdef DEBUG
+  ifneq ($(DEBUG), 0)
     CPP_FLAGS += -O0 -g3 -pg -Wall -Wextra
-    NVCC_FLAGS += -D_DEBUG
+    NVCC_FLAGS += -O3
+  else
+    CPP_FLAGS += -O3 -Wall -Wextra
+    NVCC_FLAGS += -D_DEBUG -O0 -G -g -pg
+  endif
 else
-    CPP_FLAGS += -O3
+    CPP_FLAGS += -O3 -Wall -Wextra
+    NVCC_FLAGS += -O3
 endif
 
-ifeq ($(GPU_ARCH), 20)
-    NVCC_FLAGS += --gpu-architecture=compute_20 --gpu-code=sm_20
-endif
-
-ifeq ($(GPU_ARCH), 11)
-      NVCC_FLAGS += --gpu-architecture=compute_11 --gpu-code=sm_11
+ifdef GPU_ARCH
+    NVCC_FLAGS += --gpu-architecture=compute_$(GPU_ARCH) --gpu-code=sm_$(GPU_ARCH)
 endif
 
 EXECUTABLE = ../bin/clumper
