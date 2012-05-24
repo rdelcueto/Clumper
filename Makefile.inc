@@ -1,8 +1,11 @@
 CC := g++
 NVCC := nvcc
 
-LIB_INCLUDES += -I/usr/include -I/usr/local/cuda/include
-LD_FLAGS += -lrt -lgomp -largtable2 -lcudart -L/usr/local/cuda/lib64/
+CUDA_TOOLKIT_PATH ?= /usr/local/cuda
+CUDA_SDK_PATH ?= /opt/CUDA_SDK
+
+LIB_INCLUDES += -I/usr/include -I$(CUDA_TOOLKIT_PATH)/include -I$(CUDA_SDK_PATH)/C/common/inc
+LD_FLAGS += -lrt -lgomp -largtable2 -lcudart -L$(CUDA_TOOLKIT_PATH)/lib64 -L$(CUDA_SDK_PATH)/C/common/lib
 
 ifdef DEBUG
   ifneq ($(DEBUG), 0)
