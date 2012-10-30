@@ -17,7 +17,8 @@
  * along with Clumper. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "clumper.h"
+#include "clumper_kernels.h"
+#include "cuda_debug.cu"
 
 // GPU Kernels Shared Memory Pointer.
 extern __shared__ float shared_memory[];

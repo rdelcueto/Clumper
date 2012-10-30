@@ -2,20 +2,15 @@ include ../Makefile.inc
 
 all: $(EXECUTABLE)
 
-$(EXECUTABLE): $(OBJS) $(CU_OBJS)
+$(EXECUTABLE): $(OBJS) clumper.cpp
 	@echo "Building Clumper Executable ...\n"
 	-mkdir -p ../bin
-	$(CC) $(CPP_FLAGS) -o $@ $^ $(LD_FLAGS) 
+	$(CC) $(CPP_FLAGS) -o $@ $^ $(LIB_INCLUDES) $(LD_FLAGS) 
 
 $(OBJS): $(SRCS)
-	@echo "Compiling Clumper CPP sources ...\n"
+	@echo "Compiling Clumper sources ...\n"
 	-mkdir -p ../bin
-	$(CC) $(CPP_FLAGS) -o $@ -c $^ $(LIB_INCLUDES) 
-
-$(CU_OBJS): $(CU_SRCS)
-	@echo "Compiling Clumper CUDA Kernels ...\n"
-	-mkdir -p ../bin
-	$(NVCC) $(NVCC_FLAGS) -o $@ -c $^ $(LIB_INCLUDES)
+	$(NVCC) $(NVCC_FLAGS) -o $@ -c $^ $(LIB_INCLUDES) $(LD_FLAGS)
 
 clean:
 	rm -fr ../bin

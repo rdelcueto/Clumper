@@ -1,5 +1,5 @@
 /**
- * @file clumpper.h GPGPU K-Medoid Clustering Header
+ * @file clumper.h GPGPU K-Medoid Clustering GPU Kernels Header
  * @author Rodrigo González del Cueto, Copyright (C) 2011.
  * @see The GNU GENERAL PUBLIC LICENSE Version 2 (GPL)
  *
@@ -25,16 +25,10 @@
 #include <sstream>
 #include <cmath>
 #include <algorithm>
-#include <set>
-#include <limits>
 
-#include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
 #include <argtable2.h>
-
-#include <cutil.h>
-#include <math_constants.h>
 
 /** 
  * Prints the program's usage.
@@ -103,85 +97,6 @@ void print_input_matrix ( const unsigned int matrix_size,
 void init_k_cluster_medoids ( const unsigned k );
 
 /** 
- * Fills the medoid_costs vector with every medoids assigned cost, given the association
- * table.
- *
- * @param cluster Index of cluster to compute candidates.
- * @param elements Number of elements.
- * @param medoid_indexes Array with indexes describing the current medoid set.
- * @param medoid_assoc Array describing the medoid association table of all elements.
- * @param distance_matrix The input distance matrix.
- * @param medoids_costs Array for writing each medoid cost.
- */
-void get_current_medoids_cost ( const unsigned int clusters,
-				const unsigned int elements,
-				const unsigned int medoid_indexes[],
-				const unsigned int medoid_assoc[],
-				const float distance_matrix[],
-				float medoids_costs[] );
-
-/** 
- * Fills up the medoid_assoc vector with index to the closest medoid from the current
- * medoid set, for every element.
- * 
- * @param clusters Number of clusters.
- * @param elements Number of elements.
- * @param medoid_indexes Array with indexes describing the current medoid set.
- * @param medoid_assoc Array describing the medoid association for every element.
- * @param distance_matrix The input distance matrix.
- */
-void associate_closest_medoid ( const unsigned int clusters,
-				const unsigned int elements,
-				const unsigned int medoid_indexes[],
-				unsigned int medoid_assoc[],
-				const float distance_matrix[] );
-
-/** 
- * Clears previous iteration candidates' cost values and blacklisted elements.
- *
- * @param elements Number of elements.
- * @param medoid_candidates_cost Array for clearing values.
- */
-void clear_medoid_candidates ( const unsigned int elements,
-			       float medoid_candidates_cost[] );
-
-/** 
- * Computes the cost for all elements as candidates for substitution of medoid
- * for the given cluster.
- *
- * @param cluster_idx Index of cluster to compute candidates.
- * @param elements Number of elements.
- * @param medoid_assoc Array describing the medoid association table of all elements.
- * @param distance_matrix The input distance matrix.
- * @param medoid_candidates_cost Array for writing each candidate's cost.
- */
-void compute_medoid_candidates ( const unsigned int cluster_idx,
-				 const unsigned int elements,
-				 const unsigned int medoid_assoc[],
-				 const unsigned int medoid_indexes[],
-				 const float distance_matrix[],
-				 float medoid_candidates_cost[] );
-
-/** 
- * Updates the medoid indexes n' costs with the best candidate if it exists.
- *
- * @param cluster_idx Index of cluster to reduce.
- * @param elements Number of elements.
- * @param medoid_assoc Array describing the medoid association table of all elements.
- * @param medoid_candidates_cost Array describing each candidate's cost.
- * @param medoid_indexes Array describing the current medoid set.
- * @param medoid_costs Array describing the current medoids' costs.
- * @param diff_flag Difference flag to indicate if there was a change in the medoid set.
- */
-void reduce_medoid_candidates ( const unsigned int cluster_idx,
-				const unsigned int elements,
-				unsigned int medoid_assoc[],
-				float medoid_candidates_cost[],
-				unsigned int medoid_indexes[],
-				float medoid_costs[],
-				int *diff_flag );
-
-/** 
  * Runs the K-Medoid Clustering Algorithm Function over the input data, and
  * returns the resulting medoids and their associated data-points.
  *
@@ -203,4 +118,5 @@ void k_medoid_clustering ( const unsigned int clusters,
 			   const unsigned int repetitions,
 			   const unsigned long seed,
 			   std::stringstream &output );
+
 #endif // __CLUMPER_H__

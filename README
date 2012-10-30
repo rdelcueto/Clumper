@@ -1,1 +1,8 @@
 K-Medoid Clustering GPGPU Implementation
+
+For Usage & Help run:
+  ./clumper --help
+
+
+Execution Example:
+  ./clumper -n 452 -p ../data/listaEXP_040610.txt -b 1 -l "20 21 22 23 24 25" -m 10 -r 100 -o test
